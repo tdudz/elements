@@ -91,6 +91,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "blindrawtransaction", 2, "ignoreblindfail" },
     { "createrawtransaction", 0, "inputs" },
     { "createrawtransaction", 1, "outputs" },
+	{ "mergemwtransactions", 0, "transactions" },
     { "dumpissuanceblindingkey", 1, "vin" },
     { "importissuanceblindingkey", 1, "vin" },
     { "createrawtransaction", 2, "locktime" },

@@ -447,9 +447,79 @@ UniValue verifytxoutproof(const JSONRPCRequest& request)
     return res;
 }
 
+UniValue mergemwtransactions(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw runtime_error(
+            "mergemwtransactions [ tx1, tx2, ... ]\n"
+            "\nMerge two or more incomplete Mimblewimble transactions into a single, valid transaction.\n"
+            "Returns hex-encoded raw transaction.\n"
+
+            "\nArguments:\n"
+            "1. \"txs\"                    (array, required) A JSON array of hex strings\n"
+            "     [\n"
+            "        \"tx\"                (string) A raw transaction\n"
+            "        ,...\n"
+            "     ]\n"
+            "\nResult:\n"
+            "\"transaction\"               (string) Hex string of the merged transaction\n"
+
+            "\nExamples:\n"
+            + HelpExampleCli("mergemwtransactions", "\"[ \"tx1\", \"tx2\", \"tx3\" ]\"")
+        );
+
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR));
+    UniValue transactions = request.params[0].get_array();
+    int numtxs = transactions.size();
+    vector<CMutableTransaction> mtxs(numtxs);
+    for (int i = 0; i < numtxs; i++) {
+        if (!DecodeHexTx(mtxs[i], transactions[i].get_str(), true))
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+    }
+
+    CMutableTransaction mergedmtx;
+    CAmount totalfee = 0;
+    for (int i = 0; i < numtxs; i++) {
+        const CMutableTransaction& currentmtx = mtxs[i];
+
+        for (unsigned int idx = 0; idx < currentmtx.vin.size(); idx++) {
+            mergedmtx.vin.push_back(currentmtx.vin[idx]);
+        }
+        for (unsigned int idx = 0; idx < currentmtx.vout.size(); idx++) {
+        	const CTxOut& currentvout = currentmtx.vout[idx];
+
+        	if (currentvout.IsFee()) {
+        		// found a fee, must merge
+        		// TODO handle different asset types, maybe in a map
+        		totalfee += currentvout.nValue.GetAmount();
+        	}
+        	else {
+        		mergedmtx.vout.push_back(currentvout);
+        	}
+        }
+        // merge witness data
+        for (unsigned int idx = 0; idx < currentmtx.wit.vtxinwit.size(); idx++) {
+            mergedmtx.wit.vtxinwit.push_back(currentmtx.wit.vtxinwit[idx]);
+        }
+        for (unsigned int idx = 0; idx < currentmtx.wit.vtxoutwit.size(); idx++) {
+            mergedmtx.wit.vtxoutwit.push_back(currentmtx.wit.vtxoutwit[idx]);
+        }
+    }
+    // construct merged fee
+    if (totalfee > 0) {
+    	CTxOut fee;
+    	fee.scriptPubKey = CScript();
+    	fee.nValue.SetToAmount(totalfee);
+    	fee.nAsset.SetToAsset(BITCOINID);
+    	mergedmtx.vout.push_back(fee);
+    }
+    CTransaction mergedtx(mergedmtx);
+    return EncodeHexTx(mergedtx);
+}
+
 UniValue createrawtransaction(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() < 2 || request.params.size() > 4)
+    if (request.fHelp || request.params.size() < 2 || request.params.size() > 5)
         throw runtime_error(
             "createrawtransaction [{\"txid\":\"id\",\"vout\":n,\"amount\":n},...] {\"address\":amount,\"data\":\"hex\",...} ( locktime {\"address\":asset} )\n"
             "\nCreate a transaction spending the given inputs and creating new outputs.\n"
@@ -464,7 +534,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             "       {\n"
             "         \"txid\":\"id\",    (string, required) The transaction id\n"
             "         \"vout\":n,         (numeric, required) The output number\n"
-            "         \"amount\": x.xxx,    (numeric, required) The amount being spent\n"
+            "         \"amount\": x.xxx,  (numeric, required) The amount being spent\n"
             "         \"asset\": \"string\"   (string, optional, default=bitcoin) The asset of the input, as a tag string or a hex value\n"
             "         \"sequence\":n      (numeric, optional) The sequence number\n"
             "       } \n"
@@ -474,16 +544,17 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             "    {\n"
             "      \"address\": x.xxx,    (numeric or string, required) The key is the bitcoin address, the numeric value (can be string) is the " + CURRENCY_UNIT + " amount\n"
             "      \"data\": \"hex\"      (string, required) The key is \"data\", the value is hex encoded data\n"
-            "      \"fee\": x.xxx           (numeric or string, required) The key is \"fee\", the value the fee output you want to add.\n"
+            "      \"fee\": x.xxx         (numeric or string, required) The key is \"fee\", the value the fee output you want to add.\n"
             "      ,...\n"
             "    }\n"
             "3. locktime                  (numeric, optional, default=0) Raw locktime. Non-0 value also locktime-activates inputs\n"
-            "4. \"output_assets\"           (strings, optional, default=bitcoin) A json object of assets to addresses\n"
+            "4. \"output_assets\"         (strings, optional, default=bitcoin) A json object of assets to addresses\n"
             "   {\n"
             "       \"address\": \"hex\" \n"
             "        \"fee\": \"hex\" \n"
             "       ...\n"
             "   }\n"
+			"5. mimblewimble              (boolean, optional, default=false) a boolean specifying whether outputs should be MW-style\n"
             "\nResult:\n"
             "\"transaction\"              (string) hex string of the transaction\n"
 
@@ -496,7 +567,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             + HelpExampleRpc("createrawtransaction", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"vout\\\":0,\\\"amount\\\":2.5}]\", \"{\\\"data\\\":\\\"00010203\\\"}\"")
         );
 
-    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VOBJ)(UniValue::VNUM)(UniValue::VOBJ), true);
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VOBJ)(UniValue::VNUM)(UniValue::VOBJ)(UniValue::VBOOL), true);
     if (request.params[0].isNull() || request.params[1].isNull())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, arguments 1 and 2 must be non-null");
 
@@ -561,6 +632,10 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
         rawTx.vin.push_back(in);
     }
 
+    bool fMimbleWimble = false;
+    if (request.params.size() > 4)
+        fMimbleWimble = request.params[4].get_bool();
+
     set<CBitcoinAddress> setAddress;
     vector<string> addrList = sendTo.getKeys();
     BOOST_FOREACH(const string& name_, addrList) {
@@ -574,7 +649,6 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
 
         if (name_ == "data") {
             std::vector<unsigned char> data = ParseHexV(sendTo[name_].getValStr(),"Data");
-
             CTxOut out(asset, 0, CScript() << OP_RETURN << data);
             rawTx.vout.push_back(out);
         } else if (name_ == "fee") {
@@ -590,7 +664,12 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
                 throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+name_);
             setAddress.insert(address);
 
-            CScript scriptPubKey = GetScriptForDestination(address.Get());
+            CScript scriptPubKey;
+            if (fMimbleWimble) {
+            	scriptPubKey = CScript() << OP_TRUE;
+            } else {
+            	scriptPubKey = GetScriptForDestination(address.Get());
+            }
             CAmount nAmount = AmountFromValue(sendTo[name_]);
 
             CTxOut out(asset, nAmount, scriptPubKey);
@@ -1520,12 +1599,13 @@ static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafeMode
   //  --------------------- ------------------------  -----------------------  ----------
     { "rawtransactions",    "getrawtransaction",      &getrawtransaction,      true,  {"txid","verbose"} },
-    { "rawtransactions",    "createrawtransaction",   &createrawtransaction,   true,  {"inputs","outputs","locktime"} },
+    { "rawtransactions",    "createrawtransaction",   &createrawtransaction,   true,  {"inputs","outputs","locktime","output_assets","mimblewimble"} },
     { "rawtransactions",    "decoderawtransaction",   &decoderawtransaction,   true,  {"hexstring"} },
     { "rawtransactions",    "decodescript",           &decodescript,           true,  {"hexstring"} },
     { "rawtransactions",    "sendrawtransaction",     &sendrawtransaction,     false, {"hexstring","allowhighfees"} },
     { "rawtransactions",    "signrawtransaction",     &signrawtransaction,     false, {"hexstring","prevtxs","privkeys","sighashtype"} }, /* uses wallet if enabled */
     { "rawtransactions",    "rawblindrawtransaction", &rawblindrawtransaction, false, {}},
+    { "rawtransactions",    "mergemwtransactions",    &mergemwtransactions,    true,  {"transactions"} },
 #ifdef ENABLE_WALLET
     { "rawtransactions",    "blindrawtransaction",    &blindrawtransaction,    true, {}},
 #endif
