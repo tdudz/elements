@@ -477,24 +477,25 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     }
 
+    set<uint256> txids;
+    for (int i = 0; i < numtxs; i++) {
+    	txids.insert(mtxs[i].GetHash());
+    }
+
     CMutableTransaction mergedmtx;
     CAmount totalfee = 0;
+    map<uint256, vector<uint32_t>> removeableOutputs;
     for (int i = 0; i < numtxs; i++) {
         const CMutableTransaction& currentmtx = mtxs[i];
 
         for (unsigned int idx = 0; idx < currentmtx.vin.size(); idx++) {
-            mergedmtx.vin.push_back(currentmtx.vin[idx]);
-        }
-        for (unsigned int idx = 0; idx < currentmtx.vout.size(); idx++) {
-        	const CTxOut& currentvout = currentmtx.vout[idx];
+        	const CTxIn& currentvin = currentmtx.vin[idx];
 
-        	if (currentvout.IsFee()) {
-        		// found a fee, must merge
-        		// TODO handle different asset types, maybe in a map
-        		totalfee += currentvout.nValue.GetAmount();
-        	}
-        	else {
-        		mergedmtx.vout.push_back(currentvout);
+        	set<uint256>::iterator it = txids.find(currentvin.prevout.hash);
+        	if (it == txids.end()) {
+        		mergedmtx.vin.push_back(currentvin);
+        	} else {
+        		removeableOutputs[currentvin.prevout.hash].push_back(currentvin.prevout.n);
         	}
         }
         // merge witness data
@@ -505,7 +506,28 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
             mergedmtx.wit.vtxoutwit.push_back(currentmtx.wit.vtxoutwit[idx]);
         }
     }
-    // construct merged fee
+    // add only non-reused inputs
+    for (int i = 0; i < numtxs; i++) {
+    	const CMutableTransaction& currentmtx = mtxs[i];
+    	const uint256 currenttxid = currentmtx.GetHash();
+
+        for (unsigned int idx = 0; idx < currentmtx.vout.size(); idx++) {
+        	const CTxOut& currentvout = currentmtx.vout[idx];
+
+        	vector<uint32_t> ns = removeableOutputs[currenttxid];
+        	if (find(ns.begin(), ns.end(), idx) != ns.end()) {
+        		continue;
+        	} else if (currentvout.IsFee()) {
+        		// found a fee, must merge
+        		// TODO handle different fee asset types, maybe in a map
+        		totalfee += currentvout.nValue.GetAmount();
+        	}
+        	else {
+        		mergedmtx.vout.push_back(currentvout);
+        	}
+        }
+    }
+    // include fee output only if there's a fee at all
     if (totalfee > 0) {
     	CTxOut fee;
     	fee.scriptPubKey = CScript();

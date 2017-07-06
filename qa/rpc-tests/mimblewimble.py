@@ -46,16 +46,23 @@ class MimblewimbleTest(BitcoinTestFramework):
 
         # send some coins to prepare for command tests
         txid0 = self.nodes[0].sendtoaddress(self.nodes[2].getnewaddress(), 1.5)
-        #txid1 = self.nodes[0].sendtoaddress(self.nodes[2].getnewaddress(), 3.5)
-        txid2 = self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress(), 10.0)
+        txid1 = self.nodes[0].sendtoaddress(self.nodes[1].getnewaddress(), 10.0)
         self.sync_all()
         self.nodes[0].generate(101)
         self.sync_all()
 
         # current node values:
-        # node 0: 20999985 BTC
+        # node 0: 20999988.5 BTC
         # node 1: 10 BTC
-        # node 2: 5 BTC
+        # node 2: 1.5 BTC
+
+        assert_equal(self.nodes[0].getbalance("", 0, False, "bitcoin"), Decimal('20999988.5'))
+        assert_equal(self.nodes[1].getbalance("", 0, False, "bitcoin"), Decimal('10'))
+        assert_equal(self.nodes[2].getbalance("", 0, False, "bitcoin"), Decimal('1.5'))
+
+        ###############################################################################################
+        # Test mw transaction merging with no cutthrough (unbalanced)
+        ###############################################################################################
 
         dectx0 = self.nodes[0].gettransaction(txid0)
         rawtx0 = self.nodes[0].decoderawtransaction(dectx0['hex'])
@@ -65,16 +72,12 @@ class MimblewimbleTest(BitcoinTestFramework):
         for outpoint in rawtx0['vout']:
             if outpoint['scriptPubKey']['type'] == 'fee':
                 continue
-            if outpoint['value-maximum'] == Decimal('42.94967296'):
+            if outpoint['value-maximum'] == Decimal('42.94967296'): # hardcoded
                 vout = outpoint
         
         node1address = self.nodes[0].validateaddress(self.nodes[1].getnewaddress())['unconfidential']
         node2change = self.nodes[0].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
-        print(self.nodes[0].gettransaction(txid0)["amount"])
-        print("PRINTING VOUT BELOW")
-        print(vout['n'])
-        print(vout)
-        print("")
+  
         # build first incomplete tx, node 2 sending to node 1
         inputs = [{"txid": txid0, "vout": vout['n'], "amount": Decimal('1.5')}]
         outputs = {"fee": Decimal('0.05'), node2change: Decimal('0.4')}
@@ -98,7 +101,40 @@ class MimblewimbleTest(BitcoinTestFramework):
 
         merged = self.nodes[2].blindrawtransaction(merged)
         merged = self.nodes[2].signrawtransaction(merged)['hex']
-        print(self.nodes[2].sendrawtransaction(merged))
+        mergedtxid = self.nodes[2].sendrawtransaction(merged)
+
+        self.nodes[2].generate(101)
+        self.sync_all()
+
+        # current node values:
+        # node 0: 20999988.5 BTC
+        # node 1: 11 BTC
+        # node 2: 0.5 BTC (fee recovered via mining)
+
+        print(self.nodes[0].getbalance("", 0, False, "bitcoin"))
+        print(self.nodes[1].getbalance("", 0, False, "bitcoin"))
+        print(self.nodes[2].getbalance("", 0, False, "bitcoin"))
+        # assert_equal(self.nodes[0].getbalance("", 0, False, "bitcoin"), Decimal('20999988.5'))
+        # assert_equal(self.nodes[1].getbalance("", 0, False, "bitcoin"), Decimal('11'))
+        # assert_equal(self.nodes[2].getbalance("", 0, False, "bitcoin"), Decimal('0.5'))
+
+        ##############################################################################################
+        # Now let's test a simple tx with cutthrough 
+        ##############################################################################################
+
+        print("")
+        # print(self.nodes[1].listunspent(0, 9999999, []))
+
+        node1address = self.nodes[1].validateaddress(self.nodes[1].getnewaddress())['unconfidential']
+        node2change = self.nodes[2].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
+        node0address = self.nodes[0].validateaddress(self.nodes[0].getnewaddress())['unconfidential']
+
+        inputs = []
+        outputs = {"fee": Decimal('0.025'), node1address: Decimal("0.25")}
+        rawtx1 = self.nodes[2].createrawtransaction(inputs, outputs, 0, None, True)
+
+        inputs = []
+        outputs = {"fee": Decimal('0.025'), node2change: Decimal('0.01'), node0address: Decimal("0.25")}
 
 
 if __name__ == '__main__':
