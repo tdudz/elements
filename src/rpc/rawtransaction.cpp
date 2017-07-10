@@ -479,24 +479,25 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
 
     set<uint256> txids;
     for (int i = 0; i < numtxs; i++) {
-    	txids.insert(mtxs[i].GetHash());
+        txids.insert(mtxs[i].GetHash());
     }
 
     CMutableTransaction mergedmtx;
     CAmount totalfee = 0;
     map<uint256, vector<uint32_t>> removeableOutputs;
+    // merge inputs first
     for (int i = 0; i < numtxs; i++) {
         const CMutableTransaction& currentmtx = mtxs[i];
 
         for (unsigned int idx = 0; idx < currentmtx.vin.size(); idx++) {
-        	const CTxIn& currentvin = currentmtx.vin[idx];
+            const CTxIn& currentvin = currentmtx.vin[idx];
 
-        	set<uint256>::iterator it = txids.find(currentvin.prevout.hash);
-        	if (it == txids.end()) {
-        		mergedmtx.vin.push_back(currentvin);
-        	} else {
-        		removeableOutputs[currentvin.prevout.hash].push_back(currentvin.prevout.n);
-        	}
+            set<uint256>::iterator it = txids.find(currentvin.prevout.hash);
+            if (it == txids.end()) {
+                mergedmtx.vin.push_back(currentvin);
+            } else {
+                removeableOutputs[currentvin.prevout.hash].push_back(currentvin.prevout.n);
+            }
         }
         // merge witness data
         for (unsigned int idx = 0; idx < currentmtx.wit.vtxinwit.size(); idx++) {
@@ -508,32 +509,32 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
     }
     // add only non-reused inputs
     for (int i = 0; i < numtxs; i++) {
-    	const CMutableTransaction& currentmtx = mtxs[i];
-    	const uint256 currenttxid = currentmtx.GetHash();
+        const CMutableTransaction& currentmtx = mtxs[i];
+        const uint256 currenttxid = currentmtx.GetHash();
 
         for (unsigned int idx = 0; idx < currentmtx.vout.size(); idx++) {
-        	const CTxOut& currentvout = currentmtx.vout[idx];
+            const CTxOut& currentvout = currentmtx.vout[idx];
 
-        	vector<uint32_t> ns = removeableOutputs[currenttxid];
-        	if (find(ns.begin(), ns.end(), idx) != ns.end()) {
-        		continue;
-        	} else if (currentvout.IsFee()) {
-        		// found a fee, must merge
-        		// TODO handle different fee asset types, maybe in a map
-        		totalfee += currentvout.nValue.GetAmount();
-        	}
-        	else {
-        		mergedmtx.vout.push_back(currentvout);
-        	}
+            vector<uint32_t> ns = removeableOutputs[currenttxid];
+            if (find(ns.begin(), ns.end(), idx) != ns.end()) {
+                continue;
+            } else if (currentvout.IsFee()) {
+                // found a fee, must merge
+                // TODO handle different fee asset types, maybe in a map
+                totalfee += currentvout.nValue.GetAmount();
+            }
+            else {
+                mergedmtx.vout.push_back(currentvout);
+            }
         }
     }
     // include fee output only if there's a fee at all
     if (totalfee > 0) {
-    	CTxOut fee;
-    	fee.scriptPubKey = CScript();
-    	fee.nValue.SetToAmount(totalfee);
-    	fee.nAsset.SetToAsset(BITCOINID);
-    	mergedmtx.vout.push_back(fee);
+        CTxOut fee;
+        fee.scriptPubKey = CScript();
+        fee.nValue.SetToAmount(totalfee);
+        fee.nAsset.SetToAsset(BITCOINID);
+        mergedmtx.vout.push_back(fee);
     }
     CTransaction mergedtx(mergedmtx);
     return EncodeHexTx(mergedtx);
@@ -566,6 +567,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             "      \"address\": x.xxx,    (numeric or string, required) The key is the bitcoin address, the numeric value (can be string) is the " + CURRENCY_UNIT + " amount\n"
             "      \"data\": \"hex\"      (string, required) The key is \"data\", the value is hex encoded data\n"
             "      \"fee\": x.xxx         (numeric or string, required) The key is \"fee\", the value the fee output you want to add.\n"
+            "      \"mw\": [x.xxx, ... ]  (array of values, required) The key is \"mw\", the value is an array of output values\n"
             "      ,...\n"
             "    }\n"
             "3. locktime                  (numeric, optional, default=0) Raw locktime. Non-0 value also locktime-activates inputs\n"
@@ -575,7 +577,6 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             "        \"fee\": \"hex\" \n"
             "       ...\n"
             "   }\n"
-			"5. mimblewimble              (boolean, optional, default=false) a boolean specifying whether outputs should be MW-style\n"
             "\nResult:\n"
             "\"transaction\"              (string) hex string of the transaction\n"
 
@@ -588,7 +589,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             + HelpExampleRpc("createrawtransaction", "\"[{\\\"txid\\\":\\\"myid\\\",\\\"vout\\\":0}]\", \"{\\\"data\\\":\\\"00010203\\\"}\"")
         );
 
-    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VOBJ)(UniValue::VNUM)(UniValue::VOBJ)(UniValue::VBOOL), true);
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VARR)(UniValue::VOBJ)(UniValue::VNUM)(UniValue::VOBJ), true);
     if (request.params[0].isNull() || request.params[1].isNull())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, arguments 1 and 2 must be non-null");
 
@@ -644,13 +645,11 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
         rawTx.vin.push_back(in);
     }
 
-    bool fMimbleWimble = false;
-    if (request.params.size() > 4)
-        fMimbleWimble = request.params[4].get_bool();
-
     set<CBitcoinAddress> setAddress;
+    bool seenFee = false;
+    bool seenMW = false;
     vector<string> addrList = sendTo.getKeys();
-    BOOST_FOREACH(const string& name_, addrList) {
+    for (const string& name_ : addrList) {
         // Defaults to policyAsset
         CAsset asset(policyAsset);
         if (!assets.isNull()) {
@@ -664,9 +663,23 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             CTxOut out(asset, 0, CScript() << OP_RETURN << data);
             rawTx.vout.push_back(out);
         } else if (name_ == "fee") {
+            if (seenFee)
+                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicate fee output"));
             CAmount nAmount = AmountFromValue(sendTo[name_]);
             CTxOut out(asset, nAmount, CScript());
             rawTx.vout.push_back(out);
+            seenFee = true;
+        } else if (name_ == "mw") {
+            if (seenMW)
+                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicate mw output(s) argument"));
+            CScript mwOutputScript = CScript() << OP_TRUE;
+            UniValue mwOutputs = sendTo[name_].get_array();
+            for (unsigned int i = 0; i < mwOutputs.size(); i++) {
+                CAmount nAmount = AmountFromValue(mwOutputs[i]);
+                CTxOut out(asset, nAmount, mwOutputScript);
+                rawTx.vout.push_back(out);
+            }
+            seenMW = true;
         } else {
             CBitcoinAddress address(name_);
             if (!address.IsValid())
@@ -676,12 +689,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
                 throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicated address: ")+name_);
             setAddress.insert(address);
 
-            CScript scriptPubKey;
-            if (fMimbleWimble) {
-            	scriptPubKey = CScript() << OP_TRUE;
-            } else {
-            	scriptPubKey = GetScriptForDestination(address.Get());
-            }
+            CScript scriptPubKey = GetScriptForDestination(address.Get());
             CAmount nAmount = AmountFromValue(sendTo[name_]);
 
             CTxOut out(asset, nAmount, scriptPubKey);

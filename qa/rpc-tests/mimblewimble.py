@@ -63,7 +63,6 @@ class MimblewimbleTest(BitcoinTestFramework):
         ###############################################################################################
         # Test mw transaction merging with no cutthrough (unbalanced)
         ###############################################################################################
-
         dectx0 = self.nodes[0].gettransaction(txid0)
         rawtx0 = self.nodes[0].decoderawtransaction(dectx0['hex'])
 
@@ -75,18 +74,18 @@ class MimblewimbleTest(BitcoinTestFramework):
             if outpoint['value-maximum'] == Decimal('42.94967296'): # hardcoded
                 vout = outpoint
         
-        node1address = self.nodes[0].validateaddress(self.nodes[1].getnewaddress())['unconfidential']
-        node2change = self.nodes[0].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
+        # node1address = self.nodes[0].validateaddress(self.nodes[1].getnewaddress())['unconfidential']
+        # node2change = self.nodes[0].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
   
         # build first incomplete tx, node 2 sending to node 1
         inputs = [{"txid": txid0, "vout": vout['n']}]
-        outputs = {"fee": Decimal('0.05'), node2change: Decimal('0.4')}
-        rawtx1 = self.nodes[2].createrawtransaction(inputs, outputs, 0, None, True)
+        outputs = {"fee": Decimal('0.05'), "mw": [Decimal('0.4')]}
+        rawtx1 = self.nodes[2].createrawtransaction(inputs, outputs, 0, None)
 
         # build second incomplete tx, node 1 receiving from node 2
         inputs = []
-        outputs = {"fee": Decimal('0.05'), node1address: Decimal('1.0')}
-        rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None, True)
+        outputs = {"fee": Decimal('0.05'), "mw": [Decimal('1.0')]}
+        rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None)
 
         merged = self.nodes[0].mergemwtransactions([rawtx1, rawtx2])
         jsonmerged = self.nodes[1].decoderawtransaction(merged)
@@ -126,8 +125,8 @@ class MimblewimbleTest(BitcoinTestFramework):
         # print(self.nodes[2].listunspent(0, 9999999, []))
         print("STARTING CUTTHROUGH TEST")
         node1address = self.nodes[1].validateaddress(self.nodes[1].getnewaddress())['unconfidential']
-        node2change = self.nodes[2].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
-        node0address = self.nodes[0].validateaddress(self.nodes[0].getnewaddress())['unconfidential']
+        # node2change = self.nodes[2].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
+        # node0address = self.nodes[0].validateaddress(self.nodes[0].getnewaddress())['unconfidential']
 
         utxos = self.nodes[2].listunspent(0, 9999999, [])
         n = float('inf')
@@ -138,8 +137,8 @@ class MimblewimbleTest(BitcoinTestFramework):
         assert(n < float('inf'))
 
         inputs = [{"txid": mergedtxid, "vout": n}]
-        outputs = {"fee": Decimal('0.025'), node1address: Decimal("0.25")}
-        rawtx1 = self.nodes[2].createrawtransaction(inputs, outputs, 0, None, True)
+        outputs = {"fee": Decimal('0.025'), "mw": [Decimal('0.25')]}
+        rawtx1 = self.nodes[2].createrawtransaction(inputs, outputs, 0, None)
 
         txid1 = self.nodes[0].decoderawtransaction(rawtx1)['txid']
 
@@ -151,9 +150,13 @@ class MimblewimbleTest(BitcoinTestFramework):
         assert(reused_n < float('inf'))
 
         inputs = [{"txid": txid1, "vout": reused_n}]
-        outputs = {"fee": Decimal('0.025'), node2change: Decimal('0.1'), node0address: Decimal("0.25")}
-        rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None, True)
+        outputs = {"fee": Decimal('0.025'), "mw": [Decimal('0.1'), Decimal('0.25')]}
+        rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None)
+        jsonrawtx2 = self.nodes[1].decoderawtransaction(rawtx2)
 
+        for thing in jsonrawtx2["vout"]:
+            print(thing)
+        print("XXXXXXXXXXXXX")
         merged = self.nodes[0].mergemwtransactions([rawtx1, rawtx2])
         jsonmerged = self.nodes[1].decoderawtransaction(merged)
 
