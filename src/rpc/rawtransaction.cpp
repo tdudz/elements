@@ -190,7 +190,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
             out.push_back(Pair("assetcommitment", HexStr(asset.vchCommitment)));
         }
 
-        const CConfidentialValue& amount = txout.nValue;
+//        const CConfidentialValue& amount = txout.nValue;
         out.push_back(Pair("n", (int64_t)i));
         UniValue o(UniValue::VOBJ);
         ScriptPubKeyToJSON(txout.scriptPubKey, o, true);
@@ -475,9 +475,11 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
         if (!DecodeHexTx(mtxs[i], transactions[i].get_str(), true))
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     }
-
+    // build set of all txids included in this merge
     set<uint256> txids;
     for (int i = 0; i < numtxs; i++) {
+//        if (mtxs[i].wit.IsEmpty())
+//        	throw JSONRPCError(RPC_TRANSACTION_ERROR, "No witness data found, please run blindrawtransaction first.");
         txids.insert(mtxs[i].GetHash());
     }
 
@@ -487,43 +489,41 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
     // merge inputs first
     for (int i = 0; i < numtxs; i++) {
         const CMutableTransaction& currentmtx = mtxs[i];
+        assert(currentmtx.vin.size() == currentmtx.wit.vtxinwit.size());
 
         for (unsigned int idx = 0; idx < currentmtx.vin.size(); idx++) {
-            const CTxIn& currentvin = currentmtx.vin[idx];
+            const CTxIn& currentin = currentmtx.vin[idx];
+            const CTxInWitness& currentinwit = currentmtx.wit.vtxinwit[idx];
 
-            set<uint256>::iterator it = txids.find(currentvin.prevout.hash);
+            set<uint256>::iterator it = txids.find(currentin.prevout.hash);
             if (it == txids.end()) {
-                mergedmtx.vin.push_back(currentvin);
+                mergedmtx.vin.push_back(currentin);
+                mergedmtx.wit.vtxinwit.push_back(currentinwit);
             } else {
-                removeableOutputs[currentvin.prevout.hash].push_back(currentvin.prevout.n);
+                removeableOutputs[currentin.prevout.hash].push_back(currentin.prevout.n);
             }
         }
-        // merge witness data
-        for (unsigned int idx = 0; idx < currentmtx.wit.vtxinwit.size(); idx++) {
-            mergedmtx.wit.vtxinwit.push_back(currentmtx.wit.vtxinwit[idx]);
-        }
-        for (unsigned int idx = 0; idx < currentmtx.wit.vtxoutwit.size(); idx++) {
-            mergedmtx.wit.vtxoutwit.push_back(currentmtx.wit.vtxoutwit[idx]);
-        }
     }
-    // add only non-reused inputs
+    // add only outputs that aren't reused as inputs
     for (int i = 0; i < numtxs; i++) {
         const CMutableTransaction& currentmtx = mtxs[i];
         const uint256 currenttxid = currentmtx.GetHash();
+        assert(currentmtx.vout.size() == currentmtx.wit.vtxoutwit.size());
 
         for (unsigned int idx = 0; idx < currentmtx.vout.size(); idx++) {
             const CTxOut& currentvout = currentmtx.vout[idx];
+            const CTxOutWitness currentoutwit = currentmtx.wit.vtxoutwit[idx];
 
             vector<uint32_t> ns = removeableOutputs[currenttxid];
             if (find(ns.begin(), ns.end(), idx) != ns.end()) {
                 continue;
             } else if (currentvout.IsFee()) {
                 // found a fee, must merge
-                // TODO handle different fee asset types, maybe in a map
+                // TODO handle different fee asset types, maybe in a map of asset -> fee
                 totalfee += currentvout.nValue.GetAmount();
-            }
-            else {
+            } else {
                 mergedmtx.vout.push_back(currentvout);
+                mergedmtx.wit.vtxoutwit.push_back(currentoutwit);
             }
         }
     }
@@ -672,13 +672,26 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             if (seenMW)
                 throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicate mw output(s) argument"));
             CScript mwOutputScript = CScript() << OP_TRUE;
-            UniValue mwOutputs = sendTo[name_].get_array();
-            for (unsigned int i = 0; i < mwOutputs.size(); i++) {
-                CAmount nAmount = AmountFromValue(mwOutputs[i]);
-                CTxOut out(asset, nAmount, mwOutputScript);
-                rawTx.vout.push_back(out);
+            // support single value or array of values
+            if (sendTo[name_].isArray()) {
+            	UniValue mwOutputs = sendTo[name_].get_array();
+            	for (unsigned int i = 0; i < mwOutputs.size(); i++) {
+            		CAmount nAmount = AmountFromValue(mwOutputs[i]);
+            		CTxOut out(asset, nAmount, mwOutputScript);
+            		rawTx.vout.push_back(out);
+            	}
+            } else {
+            	CAmount nAmount = AmountFromValue(sendTo[name_]);
+            	CTxOut out(asset, nAmount, mwOutputScript);
+            	rawTx.vout.push_back(out);
             }
             seenMW = true;
+
+            // build one kernel for entire tx
+            CScript mwKernelScript = CScript() << OP_RETURN;
+            CTxOut kernel(asset, 0, mwKernelScript);
+            rawTx.vout.push_back(kernel);
+
         } else {
             CBitcoinAddress address(name_);
             if (!address.IsValid())
@@ -1003,18 +1016,21 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
     vector<unsigned char> txData(ParseHexV(request.params[0], "argument 1"));
     CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION);
     CMutableTransaction tx;
-    try {
-        ssData >> tx;
-    } catch (const std::exception &) {
+//    try {
+//        ssData >> tx;
+//    } catch (const std::exception &) {
+//        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+//    }
+
+    if (!DecodeHexTx(tx, request.params[0].get_str(), false))
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
-    }
 
     bool fIgnoreBlindFail = true;
     if (request.params.size() > 1) {
         fIgnoreBlindFail = request.params[1].get_bool();
     }
 
-    std::vector<std::vector<unsigned char> > auxiliary_generators;
+    std::vector<std::vector<unsigned char>> auxiliary_generators;
     if (request.params.size() > 2) {
         UniValue assetCommitments = request.params[2].get_array();
         if (assetCommitments.size() != 0 && assetCommitments.size() < tx.vin.size()) {

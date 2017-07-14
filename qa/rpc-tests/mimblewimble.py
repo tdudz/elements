@@ -74,22 +74,34 @@ class MimblewimbleTest(BitcoinTestFramework):
             if outpoint['value-maximum'] == Decimal('42.94967296'): # hardcoded
                 vout = outpoint
         
-        # node1address = self.nodes[0].validateaddress(self.nodes[1].getnewaddress())['unconfidential']
+        # node1address = self.nodes[1].getnewaddress()
         # node2change = self.nodes[0].validateaddress(self.nodes[2].getnewaddress())['unconfidential']
   
         # build first incomplete tx, node 2 sending to node 1
         inputs = [{"txid": txid0, "vout": vout['n']}]
         outputs = {"fee": Decimal('0.05'), "mw": [Decimal('0.4')]}
+        # outputs = {"fee": Decimal('0.05'), node1address: Decimal('0.4')}
         rawtx1 = self.nodes[2].createrawtransaction(inputs, outputs, 0, None)
+        check = self.nodes[2].decoderawtransaction(rawtx1)
+        rawtx1 = self.nodes[2].blindrawtransaction(rawtx1)
+
+        # decodeblind = self.nodes[0].decoderawtransaction(rawtx1)
+        # for thing in decodeblind['vout']:
+        #     print(thing)
+
+        # return
 
         # build second incomplete tx, node 1 receiving from node 2
         inputs = []
+        # inputs = [{"txid": txid1, "vout": 0}]
         outputs = {"fee": Decimal('0.05'), "mw": [Decimal('1.0')]}
         rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None)
+        thing = self.nodes[1].decoderawtransaction(rawtx2)
+        rawtx2 = self.nodes[1].blindrawtransaction(rawtx2)
 
-        merged = self.nodes[0].mergemwtransactions([rawtx1, rawtx2])
+        merged = self.nodes[1].mergemwtransactions([rawtx1, rawtx2])
         jsonmerged = self.nodes[1].decoderawtransaction(merged)
-
+       
         for thing in jsonmerged['vin']:
             print(thing)
             print("")
@@ -97,14 +109,13 @@ class MimblewimbleTest(BitcoinTestFramework):
         for thing in jsonmerged['vout']:
             print(thing)
             print("")
+        return
 
-        merged = self.nodes[2].blindrawtransaction(merged)
-        merged = self.nodes[2].signrawtransaction(merged)['hex']
         mergedtxid = self.nodes[2].sendrawtransaction(merged)
 
         self.nodes[2].generate(101)
         self.sync_all()
-
+        return
         # current node values:
         # node 0: 20999988.5 BTC
         # node 1: 11 BTC
