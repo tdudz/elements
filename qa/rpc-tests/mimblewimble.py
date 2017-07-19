@@ -93,15 +93,16 @@ class MimblewimbleTest(BitcoinTestFramework):
 
         # build second incomplete tx, node 1 receiving from node 2
         inputs = []
-        # inputs = [{"txid": txid1, "vout": 0}]
+        inputs = [{"txid": txid1, "vout": 0}]
         outputs = {"fee": Decimal('0.05'), "mw": [Decimal('1.0')]}
         rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None)
         thing = self.nodes[1].decoderawtransaction(rawtx2)
         rawtx2 = self.nodes[1].blindrawtransaction(rawtx2)
-
+        decoded = self.nodes[1].decoderawtransaction(rawtx2)
+        
         merged = self.nodes[1].mergemwtransactions([rawtx1, rawtx2])
         jsonmerged = self.nodes[1].decoderawtransaction(merged)
-       
+        
         for thing in jsonmerged['vin']:
             print(thing)
             print("")

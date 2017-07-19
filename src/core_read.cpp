@@ -109,27 +109,13 @@ bool CheckTxScriptsSanity(const CMutableTransaction& tx)
     return true;
 }
 
-bool DecodeHexTx(CMutableTransaction& tx, const std::string& strHexTx, bool fTryNoWitness)
+bool DecodeHexTx(CMutableTransaction& tx, const std::string& strHexTx)
 {
     if (!IsHex(strHexTx)) {
         return false;
     }
 
     std::vector<unsigned char> txData(ParseHex(strHexTx));
-
-    if (fTryNoWitness) {
-        CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
-        try {
-            ssData >> tx;
-            if (ssData.eof() && CheckTxScriptsSanity(tx)) {
-                return true;
-            }
-        }
-        catch (const std::exception&) {
-            // Fall through.
-        }
-    }
-
     CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION);
     try {
         ssData >> tx;

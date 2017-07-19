@@ -170,7 +170,7 @@ UniValue getnewaddress(const JSONRPCRequest& request)
             "\nArguments:\n"
             "1. \"account\"        (string, optional) DEPRECATED. The account name for the address to be linked to. If not provided, the default account \"\" is used. It can also be set to the empty string \"\" to represent the default account. The account does not need to exist, it will be created if there is no account by the given name.\n"
             "\nResult:\n"
-            "\"address\"    (string) The new bitcoin address\n"
+            "\"address\"           (string) The new bitcoin address\n"
             "\nExamples:\n"
             + HelpExampleCli("getnewaddress", "")
             + HelpExampleRpc("getnewaddress", "")
@@ -2980,7 +2980,7 @@ UniValue fundrawtransaction(const JSONRPCRequest& request)
 
     // parse hex string from parameter
     CMutableTransaction tx;
-    if (!DecodeHexTx(tx, request.params[0].get_str(), true))
+    if (!DecodeHexTx(tx, request.params[0].get_str()))
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
 
     if (tx.vout.size() == 0)

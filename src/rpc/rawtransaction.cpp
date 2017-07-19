@@ -471,14 +471,16 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
     int numtxs = transactions.size();
     vector<CMutableTransaction> mtxs(numtxs);
     for (int i = 0; i < numtxs; i++) {
-        if (!DecodeHexTx(mtxs[i], transactions[i].get_str(), true))
+        if (!DecodeHexTx(mtxs[i], transactions[i].get_str()))
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     }
-    // build set of all txids included in this merge
+    // build set of all txids included in this merge while checking if blinded
     set<uint256> txids;
     for (int i = 0; i < numtxs; i++) {
-//        if (mtxs[i].wit.IsEmpty())
-//        	throw JSONRPCError(RPC_TRANSACTION_ERROR, "No witness data found, please run blindrawtransaction first.");
+        if (mtxs[i].wit.vtxinwit.empty() && !mtxs[i].vin.empty())
+        	throw JSONRPCError(RPC_TRANSACTION_ERROR, "No input witness data found, please run blindrawtransaction first.");
+        if (mtxs[i].wit.vtxoutwit.empty() && !mtxs[i].vout.empty())
+            throw JSONRPCError(RPC_TRANSACTION_ERROR, "No output witness data found, please run blindrawtransaction first.");
         txids.insert(mtxs[i].GetHash());
     }
 
@@ -1015,14 +1017,11 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
     vector<unsigned char> txData(ParseHexV(request.params[0], "argument 1"));
     CDataStream ssData(txData, SER_NETWORK, PROTOCOL_VERSION);
     CMutableTransaction tx;
-//    try {
-//        ssData >> tx;
-//    } catch (const std::exception &) {
-//        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
-//    }
-
-    if (!DecodeHexTx(tx, request.params[0].get_str(), false))
+    try {
+        ssData >> tx;
+    } catch (const std::exception &) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+    }
 
     bool fIgnoreBlindFail = true;
     if (request.params.size() > 1) {
@@ -1112,7 +1111,7 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
         // Vacuous, just return the transaction
         return EncodeHexTx(tx);
     } else if (n_blinded_ins > 0 && numPubKeys == 0) {
-        // Blinded inputs need to balanced with something to be valid, make a dummy.
+        // Blinded inputs need to be balanced with something to be valid, make a dummy.
         CTxOut newTxOut(tx.vout.back().nAsset.GetAsset(), 0, CScript() << OP_RETURN);
         tx.vout.push_back(newTxOut);
         numPubKeys++;
@@ -1201,7 +1200,7 @@ UniValue decoderawtransaction(const JSONRPCRequest& request)
 
     CMutableTransaction mtx;
 
-    if (!DecodeHexTx(mtx, request.params[0].get_str(), true))
+    if (!DecodeHexTx(mtx, request.params[0].get_str()))
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
 
     UniValue result(UniValue::VOBJ);
