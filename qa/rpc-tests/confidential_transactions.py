@@ -107,7 +107,7 @@ class CTTest (BitcoinTestFramework):
         assert_equal(self.nodes[2].getbalance()["bitcoin"], node2)
 
         # Check 2's listreceivedbyaddress
-        received_by_address = self.nodes[2].listreceivedbyaddress()
+        received_by_address = self.nodes[2].listreceivedbyaddress(0, False, False, "bitcoin")
         validate_by_address = [(unconfidential_address2, value1 + value3), (unconfidential_address, value0 + value2)]
         assert_equal(sorted([(ele['address'], ele['amount']) for ele in received_by_address], key=lambda t: t[0]),
                 sorted(validate_by_address, key = lambda t: t[0]))
@@ -131,7 +131,7 @@ class CTTest (BitcoinTestFramework):
         assert_equal(list_unspent[0]['amount']+list_unspent[1]['amount'], value1+value3)
         received_by_address = self.nodes[1].listreceivedbyaddress(1, False, True)
         assert_equal(len(received_by_address), 1)
-        assert_equal((received_by_address[0]['address'], received_by_address[0]['amount']),
+        assert_equal((received_by_address[0]['address'], received_by_address[0]['amount']['bitcoin']),
                      (unconfidential_address2, value1 + value3))
 
         # Spending a single confidential output and sending it to a
@@ -185,6 +185,9 @@ class CTTest (BitcoinTestFramework):
         blinded = self.nodes[0].blindrawtransaction(funded["hex"])
         # blind again to make sure we know output blinders
         blinded2 = self.nodes[0].blindrawtransaction(blinded)
+        # then sign and send
+        signed = self.nodes[0].signrawtransaction(blinded2)
+        self.nodes[0].sendrawtransaction(signed["hex"])
 
         # Check createblindedaddress functionality
         blinded_addr = self.nodes[0].getnewaddress()
@@ -326,30 +329,38 @@ class CTTest (BitcoinTestFramework):
         # Now have node 0 audit these issuances
         blindingkey1 = self.nodes[1].dumpissuanceblindingkey(redata1["txid"], redata1["vin"])
         blindingkey2 = self.nodes[2].dumpissuanceblindingkey(redata2["txid"], redata2["vin"])
+        blindingkey3 = self.nodes[2].dumpissuanceblindingkey(issuancedata["txid"], issuancedata["vin"])
 
         # Need addr to get transactions in wallet. TODO: importissuances?
         txdet1 = self.nodes[1].gettransaction(redata1["txid"])["details"]
         txdet2 = self.nodes[2].gettransaction(redata2["txid"])["details"]
+        txdet3 = self.nodes[2].gettransaction(issuancedata["txid"])["details"]
 
         # Receive addresses added last
         addr1 = txdet1[len(txdet1)-1]["address"]
         addr2 = txdet2[len(txdet2)-1]["address"]
+        addr3 = txdet3[len(txdet3)-1]["address"]
 
         assert_equal(len(self.nodes[0].listissuances()), 5);
         self.nodes[0].importaddress(addr1)
         self.nodes[0].importaddress(addr2)
+        self.nodes[0].importaddress(addr3)
 
         issuances = self.nodes[0].listissuances()
-        assert_equal(len(issuances), 7)
+        assert_equal(len(issuances), 8)
 
         for issue in issuances:
             if issue['txid'] == redata1["txid"] and issue['vin'] == redata1["vin"]:
-                assert_equal(issue['assetamount'], Decimal('-1E-8'))
+                assert_equal(issue['assetamount'], Decimal('-1'))
             if issue['txid'] == redata2["txid"] and issue['vin'] == redata2["vin"]:
-                assert_equal(issue['assetamount'], Decimal('-1E-8'))
+                assert_equal(issue['assetamount'], Decimal('-1'))
+            if issue['txid'] == issuancedata["txid"] and issue['vin'] == issuancedata["vin"]:
+                assert_equal(issue['assetamount'], Decimal('-1'))
+                assert_equal(issue['tokenamount'], Decimal('-1'))
 
         self.nodes[0].importissuanceblindingkey(redata1["txid"], redata1["vin"], blindingkey1)
         self.nodes[0].importissuanceblindingkey(redata2["txid"], redata2["vin"], blindingkey2)
+        self.nodes[0].importissuanceblindingkey(issuancedata["txid"], issuancedata["vin"], blindingkey3)
 
         issuances = self.nodes[0].listissuances()
 
@@ -358,12 +369,25 @@ class CTTest (BitcoinTestFramework):
                 assert_equal(issue['assetamount'], Decimal('0.05'))
             if issue['txid'] == redata2["txid"] and issue['vin'] == redata2["vin"]:
                 assert_equal(issue['assetamount'], Decimal('0.025'))
+            if issue['txid'] == issuancedata["txid"] and issue['vin'] == issuancedata["vin"]:
+                assert_equal(issue['assetamount'], Decimal('0'))
+                assert_equal(issue['tokenamount'], Decimal('0.00000006'))
 
         # Check for value accounting when asset issuance is null but token not, ie unblinded
         issued = self.nodes[0].issueasset(0, 1, False)
         assert(issued["asset"] not in self.nodes[0].getwalletinfo()["balance"])
         assert_equal(self.nodes[0].getwalletinfo()["balance"][issued["token"]], 1)
 
+
+        # Check for value when receiving defferent assets by same address.
+        self.nodes[0].sendtoaddress(unconfidential_address2, Decimal('0.00000001'), "", "", False, test_asset)
+        self.nodes[0].sendtoaddress(unconfidential_address2, Decimal('0.00000002'), "", "", False, test_asset)
+        self.nodes[0].generate(1)
+        self.sync_all()
+        received_by_address = self.nodes[1].listreceivedbyaddress(0, False, True)
+        multi_asset_amount = [x for x in received_by_address if x['address'] == unconfidential_address2][0]['amount']
+        assert_equal(multi_asset_amount['bitcoin'], value1 + value3 )
+        assert_equal(multi_asset_amount[test_asset], Decimal('0.00000003'))
 
         # Check blinded multisig functionality
         # Get two pubkeys
@@ -399,7 +423,7 @@ class CTTest (BitcoinTestFramework):
         txid1 = self.nodes[0].sendtoaddress(blinded_addr, 1)
         txid2 = self.nodes[0].sendtoaddress(blinded_addr, 3)
         unspent = self.nodes[0].listunspent(0, 0)
-        assert_equal(len(unspent), 3)
+        assert_equal(len(unspent), 4)
         rawtx = self.nodes[0].createrawtransaction([{"txid":unspent[0]["txid"], "vout":unspent[0]["vout"]}, {"txid":unspent[1]["txid"], "vout":unspent[1]["vout"]}], {addr:unspent[0]["amount"]+unspent[1]["amount"]-Decimal("0.2"), "fee":Decimal("0.2")})
         # Blinding will fail with 2 blinded inputs and 0 blinded outputs
         # since it has no notion of a wallet to fill in a 0-value OP_RETURN output
