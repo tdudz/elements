@@ -149,7 +149,14 @@ bool GenerateRangeproof(std::vector<unsigned char>& vchRangeproof, const std::ve
 
     // Sign rangeproof
     // If min_value is 0, scriptPubKey must be unspendable
-    int res = secp256k1_rangeproof_sign(secp256k1_blind_context, &vchRangeproof[0], &nRangeProofLen, scriptPubKey.IsUnspendable() ? 0 : 1, &commit, blindptrs.back(), nonce.begin(), std::min(std::max((int)GetArg("-ct_exponent", 0), -1),18), std::min(std::max((int)GetArg("-ct_bits", 32), 1), 51), amount, assetsMessage, sizeof(assetsMessage), scriptPubKey.size() ? &scriptPubKey.front() : NULL, scriptPubKey.size(), &gen);
+    // TODO: fix layer violation
+    int res;
+    if (amount == 0 && scriptPubKey == CScript() << OP_RETURN) {
+    	// mw kernel case --> guaranteed unspendable, don't have an owner, and nothing encoded in them
+        res = secp256k1_rangeproof_sign(secp256k1_blind_context, &vchRangeproof[0], &nRangeProofLen, 0, &commit, blindptrs.back(), nonce.begin(), -1, std::min(std::max((int)GetArg("-ct_bits", 32), 1), 51), amount, NULL, 0, scriptPubKey.size() ? &scriptPubKey.front() : NULL, scriptPubKey.size(), &gen);
+    } else {
+    	res = secp256k1_rangeproof_sign(secp256k1_blind_context, &vchRangeproof[0], &nRangeProofLen, scriptPubKey.IsUnspendable() ? 0 : 1, &commit, blindptrs.back(), nonce.begin(), std::min(std::max((int)GetArg("-ct_exponent", 0), -1),18), std::min(std::max((int)GetArg("-ct_bits", 32), 1), 51), amount, assetsMessage, sizeof(assetsMessage), scriptPubKey.size() ? &scriptPubKey.front() : NULL, scriptPubKey.size(), &gen);
+    }
     vchRangeproof.resize(nRangeProofLen);
     // TODO: do something smarter here
     return (res == 1);

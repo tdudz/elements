@@ -143,7 +143,7 @@ public:
     CConfidentialNonce() { SetNull(); }
 };
 
-/** An output of a transaction.  It contains the public key that the next input
+/** An output of a transaction. It contains the public key that the next input
  * must be able to sign with to claim it.
  */
 class CTxOut
@@ -226,8 +226,8 @@ public:
             return false;
         if (IsFee())
             return false;
-        //Withdrawlocks are evaluated at a higher, static feerate
-        //to ensure peg-outs are IsStandard on mainchain
+        // Withdrawlocks are evaluated at a higher, static feerate
+        // to ensure peg-outs are IsStandard on mainchain
         if (scriptPubKey.IsWithdrawLock() && nValue.GetAmount() < GetDustThreshold(withdrawLockTxFee))
             return true;
         return (nValue.GetAmount() < GetDustThreshold(minRelayTxFee));

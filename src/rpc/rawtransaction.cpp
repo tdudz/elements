@@ -737,7 +737,7 @@ void FillBlinds(CMutableTransaction& tx, bool fUseWallet, std::vector<uint256>& 
                 tx.vout[nOut] = newOut;
                 ptxoutwit->SetNull();
 
-                // Mark for re-blinding with same key that deblinded it
+                // Mark for re-blinding with same key that de-blinded it
                 CPubKey pubkey(pwalletMain->GetBlindingKey(&tx.vout[nOut].scriptPubKey).GetPubKey());
                 output_pubkeys.push_back(pubkey);
                 output_value_blinds.push_back(uint256());
@@ -1047,6 +1047,18 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
     }
 
     LOCK(pwalletMain->cs_wallet);
+
+    // generate blinding factors for any mw outputs
+    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    	// catch the output & kernel case
+    	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE || (tx.vout[i].scriptPubKey == CScript() << OP_RETURN && tx.vout[i].nValue.GetAmount() == 0)) {
+    		CPubKey blindingPubKey = pwalletMain->GetBlindingPubKey(GetScriptForDestination(CNoDestination()));
+    		assert(blindingPubKey.size() == 33);
+    		CConfidentialNonce nonce;
+    		nonce.vchCommitment.insert(nonce.vchCommitment.end(), blindingPubKey.begin(), blindingPubKey.end());
+    		tx.vout[i].nNonce = nonce;
+    	}
+    }
 
     std::vector<uint256> input_blinds;
     std::vector<uint256> input_asset_blinds;
