@@ -692,8 +692,8 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
     secp256k1_pedersen_commitment commit;
     secp256k1_generator gen, gencmp;
     // This is used to add in the explicit values
-    unsigned char explBlinds[32];
-    memset(explBlinds, 0, sizeof(explBlinds));
+    unsigned char zero[32];
+    memset(zero, 0, sizeof(zero));
     int ret;
 
     // This list is used to verify surjection proofs.
@@ -736,7 +736,7 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
 
                 assert(val.GetAmount() != 0);
 
-                if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, explBlinds, val.GetAmount(), &gen) != 1)
+                if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, zero, val.GetAmount(), &gen) != 1)
                     return false;
             }
             else if (val.IsCommitment()) {
@@ -813,7 +813,7 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
                         continue;
                     }
 
-                    if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, explBlinds, issuance.nAmount.GetAmount(), &gen) != 1) {
+                    if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, zero, issuance.nAmount.GetAmount(), &gen) != 1) {
                         return false;
                     }
                 }
@@ -855,7 +855,7 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
                         continue;
                     }
 
-                    if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, explBlinds, issuance.nInflationKeys.GetAmount(), &gen) != 1) {
+                    if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, zero, issuance.nInflationKeys.GetAmount(), &gen) != 1) {
                         return false;
                     }
                 }
@@ -898,6 +898,10 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         } else if (asset.IsCommitment()) {
             if (secp256k1_generator_parse(secp256k1_ctx_verify_amounts, &gen, &asset.vchCommitment[0]) != 1)
                 return false;
+        } else if (asset.IsBlinder()) {
+            if (secp256k1_generator_generate_blinded(secp256k1_ctx_verify_amounts, &gen, zero, asset.GetBlinder().begin()) != 1) {
+                return false;
+            }
         } else {
             return false;
         }
@@ -915,13 +919,18 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
                 }
             }
 
-            if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, explBlinds, val.GetAmount(), &gen) != 1)
+            if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, zero, val.GetAmount(), &gen) != 1)
                 return false;
         }
         else if (val.IsCommitment()) {
             if (secp256k1_pedersen_commitment_parse(secp256k1_ctx_verify_amounts, &commit, &val.vchCommitment[0]) != 1)
                 return false;
-        } else {
+        } else if (val.IsBlinder()) {
+            if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, val.GetBlinder().begin(), 0, &gen) != 1) {
+                return false;
+            }
+        }
+        else {
             return false;
         }
 
@@ -941,7 +950,7 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         const CConfidentialAsset& asset = tx.vout[i].nAsset;
         std::vector<unsigned char> vchAssetCommitment = asset.vchCommitment;
         const CTxOutWitness* ptxoutwit = tx.wit.vtxoutwit.size() <= i? NULL: &tx.wit.vtxoutwit[i];
-        if (val.IsExplicit())
+        if (val.IsExplicit() || val.IsBlinder())
         {
             if (ptxoutwit && !ptxoutwit->vchRangeproof.empty())
                 return false;
@@ -967,7 +976,7 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         const CConfidentialAsset& asset = tx.vout[i].nAsset;
         const CTxOutWitness* ptxoutwit = tx.wit.vtxoutwit.size() <= i? NULL: &tx.wit.vtxoutwit[i];
         //No need for surjective proof
-        if (asset.IsExplicit()) {
+        if (asset.IsExplicit() || asset.IsBlinder()) {
             if (ptxoutwit && !ptxoutwit->vchSurjectionproof.empty()) {
                 return false;
             }
