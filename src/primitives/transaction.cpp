@@ -17,6 +17,20 @@ void CConfidentialAsset::SetToAsset(const CAsset& asset)
     vchCommitment.insert(vchCommitment.end(), asset.begin(), asset.end());
 }
 
+void CConfidentialAsset::SetToBlinder(const uint256& blinder)
+{
+    vchCommitment.reserve(nCommittedSize);
+    vchCommitment.push_back(12);
+    vchCommitment.insert(vchCommitment.end(), blinder.begin(), blinder.end());
+}
+
+void CConfidentialValue::SetToBlinder(const uint256& blinder)
+{
+    vchCommitment.reserve(nCommittedSize);
+    vchCommitment.push_back(13);
+    vchCommitment.insert(vchCommitment.end(), blinder.begin(), blinder.end());
+}
+
 void CConfidentialValue::SetToAmount(const CAmount amount)
 {
     vchCommitment.resize(nExplicitSize);
