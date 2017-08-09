@@ -898,10 +898,6 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         } else if (asset.IsCommitment()) {
             if (secp256k1_generator_parse(secp256k1_ctx_verify_amounts, &gen, &asset.vchCommitment[0]) != 1)
                 return false;
-        } else if (asset.IsBlinder()) {
-            if (secp256k1_generator_generate_blinded(secp256k1_ctx_verify_amounts, &gen, zero, asset.GetBlinder().begin()) != 1) {
-                return false;
-            }
         } else {
             return false;
         }
@@ -976,7 +972,7 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         const CConfidentialAsset& asset = tx.vout[i].nAsset;
         const CTxOutWitness* ptxoutwit = tx.wit.vtxoutwit.size() <= i? NULL: &tx.wit.vtxoutwit[i];
         //No need for surjective proof
-        if (asset.IsExplicit() || asset.IsBlinder()) {
+        if (asset.IsExplicit()) {
             if (ptxoutwit && !ptxoutwit->vchSurjectionproof.empty()) {
                 return false;
             }

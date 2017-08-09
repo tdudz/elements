@@ -109,7 +109,6 @@ class CConfidentialAsset : public CConfidentialCommitment<33, 10, 11, 12>
 public:
     CConfidentialAsset() { SetNull(); }
     CConfidentialAsset(CAsset asset) { SetToAsset(asset); }
-    CConfidentialAsset(uint256 blinder) { SetToBlinder(blinder); }
 
     /* An explicit asset identifier is a 256-bit nothing-up-my-sleeve number
      * that used as auxiliary input to the Pedersen commitment setup to create
@@ -119,13 +118,7 @@ public:
         assert(IsExplicit());
         return *reinterpret_cast<const CAsset*>(&vchCommitment[1]);
     }
-    const uint256& GetBlinder() const
-    {
-        assert(IsBlinder());
-        return *reinterpret_cast<const uint256*>(&vchCommitment[1]);
-    }
     void SetToAsset(const CAsset& asset);
-    void SetToBlinder(const uint256& blinder);
 
 };
 
