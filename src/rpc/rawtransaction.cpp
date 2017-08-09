@@ -671,7 +671,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             seenFee = true;
         } else if (name_ == "mw") {
             if (seenMW)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicate mw output(s) argument"));
+                throw JSONRPCError(RPC_INVALID_PARAMETER, string("Invalid parameter, duplicate mw output(s)"));
             CScript mwOutputScript = CScript() << OP_TRUE;
             // support single value or array of values
             if (sendTo[name_].isArray()) {
@@ -687,11 +687,6 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
             	rawTx.vout.push_back(out);
             }
             seenMW = true;
-
-            // build one kernel for entire tx
-            CScript mwKernelScript = CScript() << OP_RETURN;
-            CTxOut kernel(asset, 0, mwKernelScript);
-            rawTx.vout.push_back(kernel);
 
         } else {
             CBitcoinAddress address(name_);
@@ -1048,7 +1043,25 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
 
     LOCK(pwalletMain->cs_wallet);
 
-    // generate blinding factors for any mw outputs
+    // generate a mw kernel if we find at least one mw OP_TRUE output TODO explain why I did this
+    bool isMW = false;
+    for (unsigned int i = 0; i < tx.vout.size(); i++) {
+    	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE) {
+    		isMW = true;
+    	}
+    	else if (tx.vout[i].scriptPubKey == CScript() << OP_RETURN && tx.vout[i].nValue.GetAmount() == 0) {
+    		// we found a kernel that should not be here, throw error
+    		throw JSONRPCError(RPC_MW_TOO_MANY_KERNELS, "A MW kernel was already found, it appears blindrawtransaction was already called on this transaction.");
+    	}
+    }
+    // tx is mw, so add the kernel now
+    if (isMW) {
+    	CAsset asset(policyAsset);
+    	CTxOut kernel(asset, 0, CScript() << OP_RETURN);
+    	tx.vout.push_back(kernel);
+    }
+
+    // generate blinding factors for any mw output types we encounter
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
     	// catch the output & kernel case
     	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE || (tx.vout[i].scriptPubKey == CScript() << OP_RETURN && tx.vout[i].nValue.GetAmount() == 0)) {

@@ -76,6 +76,9 @@ enum RPCErrorCode
     RPC_WALLET_WRONG_ENC_STATE      = -15, //!< Command given in wrong wallet encryption state (encrypting an encrypted wallet etc.)
     RPC_WALLET_ENCRYPTION_FAILED    = -16, //!< Failed to encrypt the wallet
     RPC_WALLET_ALREADY_UNLOCKED     = -17, //!< Wallet is already unlocked
+
+	//! MimbleWimble errors
+	RPC_MW_TOO_MANY_KERNELS         = -101, //!< Transaction already contains a kernel, it appears blindrawtransaction was already called
 };
 
 UniValue JSONRPCRequestObj(const std::string& strMethod, const UniValue& params, const UniValue& id);
