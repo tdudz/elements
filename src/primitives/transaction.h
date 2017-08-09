@@ -624,9 +624,9 @@ struct CMutableTransaction;
  *     - bit 1: witness data
  * - std::vector<CTxIn> vin
  * - std::vector<CTxOut> vout
+ * - uint32_t nLockTime
  * - if (flags & 1):
  *   - CTxWitness wit;
- * - uint32_t nLockTime
  */
 template<typename Stream, typename TxType>
 inline void UnserializeTransaction(TxType& tx, Stream& s) {
@@ -639,6 +639,7 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
     s >> flags;
     s >> tx.vin;
     s >> tx.vout;
+    s >> tx.nLockTime;
 
     if (flags & 1) {
         /* The witness flag is present. */
@@ -651,7 +652,6 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
         /* Unknown flag in the serialization */
         throw std::ios_base::failure("Unknown transaction optional data");
     }
-    s >> tx.nLockTime;
 }
 
 template<typename Stream, typename TxType>
@@ -670,12 +670,12 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
     s << flags;
     s << tx.vin;
     s << tx.vout;
+    s << tx.nLockTime;
     if (flags & 1) {
         const_cast<CTxWitness*>(&tx.wit)->vtxinwit.resize(tx.vin.size());
         const_cast<CTxWitness*>(&tx.wit)->vtxoutwit.resize(tx.vout.size());
         s << tx.wit;
     }
-    s << tx.nLockTime;
 }
 
 /** The basic transaction that is broadcasted on the network and contained in
