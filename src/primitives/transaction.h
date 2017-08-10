@@ -103,7 +103,7 @@ public:
     }
 };
 
-/** A 33-byte commitment to a blinded asset, a 32-byte naked blinding value, or an explicit asset NUMS identifier */
+/** A 33-byte commitment to a blinded asset or an explicit asset NUMS identifier */
 class CConfidentialAsset : public CConfidentialCommitment<33, 10, 11, 12>
 {
 public:
