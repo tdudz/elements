@@ -85,12 +85,12 @@ class MimblewimbleTest(BitcoinTestFramework):
         check = self.nodes[2].decoderawtransaction(rawtx1)
         rawtx1 = self.nodes[2].blindrawtransaction(rawtx1)
 
-        # decodeblind = self.nodes[0].decoderawtransaction(rawtx1)
-        # for thing in decodeblind['vout']:
-        #     print(thing)
+        decodeblind = self.nodes[0].decoderawtransaction(rawtx1)
+        for thing in decodeblind['vout']:
+            print(thing)
 
-        # print("---------------------------------------------------")
-        # return
+        print("---------------------------------------------------")
+        return
 
         # build second incomplete tx, node 1 receiving from node 2
         inputs = []

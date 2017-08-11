@@ -10,6 +10,7 @@
 #include "script/script.h"
 #include "serialize.h"
 #include "uint256.h"
+#include <iostream>
 
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
 
@@ -58,6 +59,7 @@ public:
                     break;
                 /* Invalid serialization! */
                 default:
+                	std::cout << (int)version << " verz\n";
                     throw std::ios_base::failure("Unrecognized serialization prefix");
             }
             vchCommitment[0] = version;
@@ -88,7 +90,7 @@ public:
 
     bool IsValid() const
     {
-        return IsNull() || IsExplicit() || IsCommitment()
+        return IsNull() || IsExplicit() || IsCommitment() || IsBlinder()
             || (vchCommitment.size()==nExplicitSize && vchCommitment[0]==0xff);
     }
 
@@ -134,8 +136,12 @@ public:
      * a 64-bit big-endian integer. */
     CAmount GetAmount() const
     {
-        assert(IsExplicit());;
-        return ReadBE64(&vchCommitment[1]);
+        assert(IsExplicit() || IsBlinder());
+        if (IsExplicit()) {
+        	return ReadBE64(&vchCommitment[1]);
+        } else {
+        	return (CAmount)0;
+        }
     }
     const uint256& GetBlinder() const
     {
@@ -193,6 +199,21 @@ public:
         nValue.SetNull();
         nNonce.SetNull();
         scriptPubKey.clear();
+    }
+
+    bool IsMWOutput() const
+    {
+    	return scriptPubKey == (CScript() << OP_TRUE) && nValue.IsCommitment();
+    }
+
+    bool IsMWKernel() const
+    {
+    	return scriptPubKey == (CScript() << OP_RETURN) && nValue.IsExplicit() && nValue.GetAmount() == 0;
+    }
+
+    bool IsMWBlinder() const
+    {
+    	return scriptPubKey == (CScript() << OP_RETURN) && nValue.IsBlinder();
     }
 
     bool IsNull() const

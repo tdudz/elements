@@ -123,7 +123,8 @@ bool DecodeHexTx(CMutableTransaction& tx, const std::string& strHexTx)
             return false;
         }
     }
-    catch (const std::exception&) {
+    catch (const std::exception& e) {
+    	std::cout << e.what();
         return false;
     }
 

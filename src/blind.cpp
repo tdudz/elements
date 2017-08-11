@@ -181,7 +181,7 @@ void CreateValueCommitment(CConfidentialValue& confValue, secp256k1_pedersen_com
     assert(confValue.IsValid());
 }
 
-int BlindTransaction(std::vector<uint256 >& input_blinding_factors, const std::vector<uint256 >& input_asset_blinding_factors, const std::vector<CAsset >& input_assets, const std::vector<CAmount >& input_amounts, std::vector<uint256 >& output_blinding_factors, std::vector<uint256 >& output_asset_blinding_factors, const std::vector<CPubKey>& output_pubkeys, const std::vector<CKey>& vBlindIssuanceAsset, const std::vector<CKey>& vBlindIssuanceToken, CMutableTransaction& tx, std::vector<std::vector<unsigned char> >* auxiliary_generators)
+int BlindTransaction(std::vector<uint256>& input_blinding_factors, const std::vector<uint256>& input_asset_blinding_factors, const std::vector<CAsset>& input_assets, const std::vector<CAmount>& input_amounts, std::vector<uint256>& output_blinding_factors, std::vector<uint256>& output_asset_blinding_factors, const std::vector<CPubKey>& output_pubkeys, const std::vector<CKey>& vBlindIssuanceAsset, const std::vector<CKey>& vBlindIssuanceToken, CMutableTransaction& tx, std::vector<std::vector<unsigned char>>* auxiliary_generators)
 {
     // Sanity check input data and output_pubkey size, clear other output data
     assert(tx.vout.size() >= output_pubkeys.size());
@@ -342,6 +342,11 @@ int BlindTransaction(std::vector<uint256 >& input_blinding_factors, const std::v
     }
 
     for (size_t nOut = 0; nOut < output_pubkeys.size(); nOut++) {
+    	CTxOut& out = tx.vout[nOut];
+    	if (out.IsMWBlinder()) {
+    		nToBlind++;
+    		continue;
+    	}
         if (output_pubkeys[nOut].IsValid()) {
             // Keys must be valid and outputs completely unblinded or else call fails
             if (!output_pubkeys[nOut].IsFullyValid() ||
@@ -442,18 +447,18 @@ int BlindTransaction(std::vector<uint256 >& input_blinding_factors, const std::v
     // This section of code *only* deals with unblinded outputs
     // that we want to blind
     for (size_t nOut = 0; nOut < output_pubkeys.size(); nOut++) {
-        if (output_pubkeys[nOut].IsFullyValid()) {
-            CTxOut& out = tx.vout[nOut];
+    	CTxOut& out = tx.vout[nOut];
+        if (output_pubkeys[nOut].IsFullyValid() || out.IsMWBlinder()) {
             nBlindAttempts++;
             CConfidentialAsset& confAsset = out.nAsset;
             CConfidentialValue& confValue = out.nValue;
             CAmount amount = confValue.GetAmount();
-            asset = out.nAsset.GetAsset();
             blindedAmounts.push_back(confValue.GetAmount());
 
             GetRandBytes(&blind[nBlindAttempts-1][0], 32);
-            GetRandBytes(&asset_blind[nBlindAttempts-1][0], 32);
             blindptrs.push_back(&blind[nBlindAttempts-1][0]);
+
+            GetRandBytes(&asset_blind[nBlindAttempts-1][0], 32);
             assetblindptrs.push_back(&asset_blind[nBlindAttempts-1][0]);
 
             // Last blinding factor r' is set as -(output's (vr + r') - input's (vr + r')).
@@ -488,24 +493,29 @@ int BlindTransaction(std::vector<uint256 >& input_blinding_factors, const std::v
             output_blinding_factors[nOut] = uint256(std::vector<unsigned char>(blindptrs[blindptrs.size()-1], blindptrs[blindptrs.size()-1]+32));
             output_asset_blinding_factors[nOut] = uint256(std::vector<unsigned char>(assetblindptrs[assetblindptrs.size()-1], assetblindptrs[assetblindptrs.size()-1]+32));
 
-            //Blind the asset ID
-            BlindAsset(confAsset, gen, asset, assetblindptrs.back());
+            if (out.IsMWBlinder()) {
+            	out.nValue.SetToBlinder(output_blinding_factors[nOut]);
+            	txoutwit.SetNull();
+            } else {
+            	asset = out.nAsset.GetAsset();
+            	//Blind the asset ID
+            	BlindAsset(confAsset, gen, asset, assetblindptrs.back());
 
-            // Create value commitment
-            CreateValueCommitment(confValue, commit, blindptrs.back(), gen, amount);
+            	// Create value commitment
+            	CreateValueCommitment(confValue, commit, blindptrs.back(), gen, amount);
 
-            // Generate nonce for rewind by owner
-            uint256 nonce = GenerateOutputRangeproofNonce(out, output_pubkeys[nOut]);
+            	// Generate nonce for rewind by owner
+            	uint256 nonce = GenerateOutputRangeproofNonce(out, output_pubkeys[nOut]);
 
-            // Generate rangeproof
-            bool rangeresult = GenerateRangeproof(txoutwit.vchRangeproof, blindptrs, nonce, amount, out.scriptPubKey, commit, gen, asset, assetblindptrs);
-            assert(rangeresult);
+            	// Generate rangeproof
+            	bool rangeresult = GenerateRangeproof(txoutwit.vchRangeproof, blindptrs, nonce, amount, out.scriptPubKey, commit, gen, asset, assetblindptrs);
+            	assert(rangeresult);
 
-            // Create surjection proof for this output
-            if (!SurjectOutput(txoutwit, surjectionTargets, targetAssetGenerators, targetAssetBlinders, assetblindptrs, gen, asset)) {
-                continue;
+            	// Create surjection proof for this output
+            	if (!SurjectOutput(txoutwit, surjectionTargets, targetAssetGenerators, targetAssetBlinders, assetblindptrs, gen, asset)) {
+            		continue;
+            	}
             }
-
             // Successfully blinded this output
             nSuccessfullyBlinded++;
         }

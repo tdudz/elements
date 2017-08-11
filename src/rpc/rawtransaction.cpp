@@ -165,7 +165,7 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
         UniValue out(UniValue::VOBJ);
         if (txout.nValue.IsExplicit()) {
             out.push_back(Pair("value", ValueFromAmount(txout.nValue.GetAmount())));
-        } else {
+        } else if (txout.nValue.IsCommitment()) {
             int exp;
             int mantissa;
             uint64_t minv;
@@ -182,6 +182,11 @@ void TxToJSON(const CTransaction& tx, const uint256 hashBlock, UniValue& entry)
                 out.push_back(Pair("ct-bits", mantissa));
             }
             out.push_back(Pair("amountcommitment", HexStr(txout.nValue.vchCommitment)));
+        } else if (txout.nValue.IsBlinder()) {
+            out.push_back(Pair("value", 0));
+            out.push_back(Pair("blinding-factor", HexStr(txout.nValue.vchCommitment)));
+        } else {
+        	assert(0); // in case new output types are added
         }
         const CConfidentialAsset& asset = txout.nAsset;
         if (asset.IsExplicit()) {
@@ -717,7 +722,7 @@ UniValue createrawtransaction(const JSONRPCRequest& request)
 // Rewind the outputs to unblinded, and push placeholders for blinding info
 void FillBlinds(CMutableTransaction& tx, bool fUseWallet, std::vector<uint256>& output_value_blinds, std::vector<uint256>& output_asset_blinds, std::vector<CPubKey>& output_pubkeys, std::vector<CKey>& asset_keys, std::vector<CKey>& token_keys) {
     for (size_t nOut = 0; nOut < tx.vout.size(); nOut++) {
-        if (!tx.vout[nOut].nValue.IsExplicit()) {
+    	if (!tx.vout[nOut].nValue.IsExplicit()) { // TODO make this check better bc of other output types
             CTxOutWitness* ptxoutwit = tx.wit.vtxoutwit.size() <= nOut? NULL: &tx.wit.vtxoutwit[nOut];
             uint256 blinding_factor;
             uint256 asset_blinding_factor;
@@ -1043,28 +1048,32 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
 
     LOCK(pwalletMain->cs_wallet);
 
-    // generate a mw kernel if we find at least one mw OP_TRUE output TODO explain why I did this
+    // generate a mw kernel and blinder if we find at least one mw OP_TRUE output TODO explain why I did this, don't steal funds back from receiver
     bool isMW = false;
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
-    	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE) {
+    	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE) { // don't use IsMWOutput in case we have unblinded inputs to start
     		isMW = true;
     	}
-    	else if (tx.vout[i].scriptPubKey == CScript() << OP_RETURN && tx.vout[i].nValue.GetAmount() == 0) {
-    		// we found a kernel that should not be here, throw error
-    		throw JSONRPCError(RPC_MW_TOO_MANY_KERNELS, "A MW kernel was already found, it appears blindrawtransaction was already called on this transaction.");
+    	else if (tx.vout[i].IsMWKernel() || tx.vout[i].IsMWBlinder()) {
+    		// we found a kernel or blinder that should not be here, throw error
+    		throw JSONRPCError(RPC_MW_ALREADY_BLINDED, "A MW kernel or blinder was already found, it appears blindrawtransaction was already called on this transaction.");
     	}
     }
-    // tx is mw, so add the kernel now
+    // tx is mw, so add the kernel and a blinder now
     if (isMW) {
     	CAsset asset(policyAsset);
     	CTxOut kernel(asset, 0, CScript() << OP_RETURN);
     	tx.vout.push_back(kernel);
+
+    	CTxOut blinder; // nonce and asset can be null here
+    	blinder.nValue.SetToBlinder(uint256());
+    	blinder.scriptPubKey = CScript() << OP_RETURN;
+    	tx.vout.push_back(blinder);
     }
 
-    // generate blinding factors for any mw output types we encounter
+    // generate blinding factors for any mw output/kernel we encounter
     for (unsigned int i = 0; i < tx.vout.size(); i++) {
-    	// catch the output & kernel case
-    	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE || (tx.vout[i].scriptPubKey == CScript() << OP_RETURN && tx.vout[i].nValue.GetAmount() == 0)) {
+    	if (tx.vout[i].scriptPubKey == CScript() << OP_TRUE || tx.vout[i].IsMWKernel()) {
     		CPubKey blindingPubKey = pwalletMain->GetBlindingPubKey(GetScriptForDestination(CNoDestination()));
     		assert(blindingPubKey.size() == 33);
     		CConfidentialNonce nonce;
@@ -1131,6 +1140,7 @@ UniValue blindrawtransaction(const JSONRPCRequest& request)
             keyIndex = i;
         }
     }
+    if (isMW) { numPubKeys++; } // increment by 1 for the exposed blinder output
 
     if (numPubKeys == 0 && n_blinded_ins == 0) {
         // Vacuous, just return the transaction

@@ -78,7 +78,7 @@ enum RPCErrorCode
     RPC_WALLET_ALREADY_UNLOCKED     = -17, //!< Wallet is already unlocked
 
 	//! MimbleWimble errors
-	RPC_MW_TOO_MANY_KERNELS         = -101, //!< Transaction already contains a kernel, it appears blindrawtransaction was already called
+	RPC_MW_ALREADY_BLINDED          = -99, //!< Transaction already contains a kernel or blinder, it appears blindrawtransaction was already called
 };
 
 UniValue JSONRPCRequestObj(const std::string& strMethod, const UniValue& params, const UniValue& id);
