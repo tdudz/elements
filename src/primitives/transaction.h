@@ -59,7 +59,6 @@ public:
                     break;
                 /* Invalid serialization! */
                 default:
-                	std::cout << (int)version << " verz\n";
                     throw std::ios_base::failure("Unrecognized serialization prefix");
             }
             vchCommitment[0] = version;
@@ -137,11 +136,7 @@ public:
     CAmount GetAmount() const
     {
         assert(IsExplicit() || IsBlinder());
-        if (IsExplicit()) {
-        	return ReadBE64(&vchCommitment[1]);
-        } else {
-        	return (CAmount)0;
-        }
+        return (IsExplicit()) ? ReadBE64(&vchCommitment[1]) : 0;
     }
     const uint256& GetBlinder() const
     {

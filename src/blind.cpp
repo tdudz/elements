@@ -10,8 +10,6 @@
 #include <secp256k1_rangeproof.h>
 #include <secp256k1_surjectionproof.h>
 
-#include "utilstrencodings.h"
-
 static secp256k1_context* secp256k1_blind_context = NULL;
 
 class Blind_ECC_Init {
@@ -497,7 +495,6 @@ int BlindTransaction(std::vector<uint256>& input_blinding_factors, const std::ve
 
             if (out.IsMWBlinder()) {
             	out.nValue.SetToBlinder(output_blinding_factors[nOut]);
-            	txoutwit.SetNull();
             } else {
             	asset = out.nAsset.GetAsset();
             	//Blind the asset ID
