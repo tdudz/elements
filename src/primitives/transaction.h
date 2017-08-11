@@ -88,7 +88,7 @@ public:
 
     bool IsValid() const
     {
-        return IsNull() || IsExplicit() || IsCommitment()
+        return IsNull() || IsExplicit() || IsCommitment() || IsBlinder()
             || (vchCommitment.size()==nExplicitSize && vchCommitment[0]==0xff);
     }
 
@@ -134,8 +134,9 @@ public:
      * a 64-bit big-endian integer. */
     CAmount GetAmount() const
     {
-        assert(IsExplicit());;
-        return ReadBE64(&vchCommitment[1]);
+    	// if output is an exposed blinder, the value is assumed to be zero
+        assert(IsExplicit() || IsBlinder());
+        return (IsExplicit()) ? ReadBE64(&vchCommitment[1]) : 0;
     }
     const uint256& GetBlinder() const
     {
