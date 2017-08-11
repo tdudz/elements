@@ -12,6 +12,7 @@
 
 void CConfidentialAsset::SetToAsset(const CAsset& asset)
 {
+	vchCommitment.clear();
     vchCommitment.reserve(nExplicitSize);
     vchCommitment.push_back(1);
     vchCommitment.insert(vchCommitment.end(), asset.begin(), asset.end());
@@ -19,6 +20,7 @@ void CConfidentialAsset::SetToAsset(const CAsset& asset)
 
 void CConfidentialValue::SetToBlinder(const uint256& blinder)
 {
+	vchCommitment.clear();
     vchCommitment.reserve(nCommittedSize);
     vchCommitment.push_back(13);
     vchCommitment.insert(vchCommitment.end(), blinder.begin(), blinder.end());
