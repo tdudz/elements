@@ -10,6 +10,8 @@
 #include <secp256k1_rangeproof.h>
 #include <secp256k1_surjectionproof.h>
 
+#include "utilstrencodings.h"
+
 static secp256k1_context* secp256k1_blind_context = NULL;
 
 class Blind_ECC_Init {
