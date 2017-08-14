@@ -886,6 +886,12 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         } else if (asset.IsCommitment()) {
             if (secp256k1_generator_parse(secp256k1_ctx_verify_amounts, &gen, &asset.vchCommitment[0]) != 1)
                 return false;
+        } else if (val.IsBlinder()) {
+            // asset is null in a blinder so we must still continue TODO fix this/figure out if IsNull() is ok
+            std::cout << "IM HERE 1\n";
+            if (secp256k1_generator_generate_blinded(secp256k1_ctx_verify_amounts, &gen, zero, zero) != 1) {
+                return false;
+            }
         } else {
             return false;
         }
@@ -905,16 +911,14 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
 
             if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, zero, val.GetAmount(), &gen) != 1)
                 return false;
-        }
-        else if (val.IsCommitment()) {
+        } else if (val.IsCommitment()) {
             if (secp256k1_pedersen_commitment_parse(secp256k1_ctx_verify_amounts, &commit, &val.vchCommitment[0]) != 1)
                 return false;
         } else if (val.IsBlinder()) {
             if (secp256k1_pedersen_commit(secp256k1_ctx_verify_amounts, &commit, val.GetBlinder().begin(), 0, &gen) != 1) {
                 return false;
             }
-        }
-        else {
+        } else {
             return false;
         }
 
@@ -936,8 +940,9 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
         const CTxOutWitness* ptxoutwit = tx.wit.vtxoutwit.size() <= i? NULL: &tx.wit.vtxoutwit[i];
         if (val.IsExplicit() || val.IsBlinder())
         {
-            if (ptxoutwit && !ptxoutwit->vchRangeproof.empty())
+            if (ptxoutwit && !ptxoutwit->vchRangeproof.empty()) {
                 return false;
+            }
             continue;
         }
         if (asset.IsExplicit()) {
@@ -955,27 +960,40 @@ bool VerifyAmounts(const CCoinsViewCache& cache, const CTransaction& tx, std::ve
 
     std::vector<secp256k1_generator> copy_targetGenerators(targetGenerators);
 
+    // Surjection proofs
     for (size_t i = 0; i < tx.vout.size(); i++)
     {
         const CConfidentialAsset& asset = tx.vout[i].nAsset;
         const CTxOutWitness* ptxoutwit = tx.wit.vtxoutwit.size() <= i? NULL: &tx.wit.vtxoutwit[i];
         //No need for surjective proof
-        if (asset.IsExplicit()) {
+        if (asset.IsExplicit() || asset.IsNull()) {
             if (ptxoutwit && !ptxoutwit->vchSurjectionproof.empty()) {
                 return false;
             }
             continue;
         }
-        if (!ptxoutwit || ptxoutwit->vchSurjectionproof.size() > 5000)
+        if (!ptxoutwit || ptxoutwit->vchSurjectionproof.size() > 5000) {
             return false;
-        if (secp256k1_generator_parse(secp256k1_ctx_verify_amounts, &gen, &asset.vchCommitment[0]) != 1)
+        }
+        if (secp256k1_generator_parse(secp256k1_ctx_verify_amounts, &gen, &asset.vchCommitment[0]) != 1) {
             return false;
-
+        }
         secp256k1_surjectionproof proof;
-        if (secp256k1_surjectionproof_parse(secp256k1_ctx_verify_amounts, &proof, &ptxoutwit->vchSurjectionproof[0], ptxoutwit->vchSurjectionproof.size()) != 1)
+        if (secp256k1_surjectionproof_parse(secp256k1_ctx_verify_amounts, &proof, &ptxoutwit->vchSurjectionproof[0], ptxoutwit->vchSurjectionproof.size()) != 1) {
             return false;
-
+        }
         if (!QueueCheck(pvChecks, new CSurjectionCheck(proof, targetGenerators, gen, cacheStore))) {
+            if (tx.vout[i].IsMWOutput()) {
+                std::cout << "output\n";
+            }
+            if (tx.vout[i].IsMWBlinder()) {
+                std::cout << "blinder\n";
+            }
+            if (tx.vout[i].IsMWKernel()) {
+                std::cout <<"kernel\n";
+            }
+            std::cout << i << "\n";
+            std::cout << "IM HERE 9\n";
             return false;
         }
         // Each CSurjectionCheck uses swap to keep pointers valid.

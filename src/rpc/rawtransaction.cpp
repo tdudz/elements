@@ -34,6 +34,7 @@
 
 #include <boost/assign/list_of.hpp>
 #include <secp256k1_rangeproof.h>
+#include <secp256k1.h>
 
 #include <univalue.h>
 
@@ -490,7 +491,6 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
     }
 
     CMutableTransaction mergedmtx;
-    CAmount totalfee = 0;
     map<uint256, vector<uint32_t>> removeableOutputs;
     // merge inputs first
     for (int i = 0; i < numtxs; i++) {
@@ -510,6 +510,8 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
             }
         }
     }
+    CAmount totalFee = 0;
+    std::vector<unsigned char> totalBlinder(32);
     // add only outputs that aren't reused as inputs
     for (int i = 0; i < numtxs; i++) {
         const CMutableTransaction& currentmtx = mtxs[i];
@@ -526,7 +528,11 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
             } else if (currentvout.IsFee()) {
                 // found a fee, must merge
                 // TODO handle different fee asset types, maybe in a map of asset -> fee
-                totalfee += currentvout.nValue.GetAmount();
+                totalFee += currentvout.nValue.GetAmount();
+            } else if(currentvout.IsMWBlinder()) {
+                // remember that vchCommitment[0] is the prefix which we don't want
+                int ret = secp256k1_ec_privkey_tweak_add(secp256k1_blind_context, totalBlinder.data(), &currentvout.nValue.vchCommitment[1]);
+                assert(ret);
             } else {
                 mergedmtx.vout.push_back(currentvout);
                 mergedmtx.wit.vtxoutwit.push_back(currentoutwit);
@@ -534,12 +540,19 @@ UniValue mergemwtransactions(const JSONRPCRequest& request)
         }
     }
     // include fee output only if there's a fee at all
-    if (totalfee > 0) {
+    if (totalFee > 0) {
         CTxOut fee;
         fee.scriptPubKey = CScript();
-        fee.nValue.SetToAmount(totalfee);
+        fee.nValue.SetToAmount(totalFee);
         fee.nAsset.SetToAsset(BITCOINID);
         mergedmtx.vout.push_back(fee);
+    }
+    // add the sum of exposed blinding factors if there were any
+    if (!totalBlinder.empty()) {
+        CTxOut blinder;
+        blinder.scriptPubKey = CScript() << OP_RETURN;
+        blinder.nValue.SetToBlinder(uint256(totalBlinder));
+        mergedmtx.vout.push_back(blinder);
     }
     CTransaction mergedtx(mergedmtx);
     return EncodeHexTx(mergedtx);

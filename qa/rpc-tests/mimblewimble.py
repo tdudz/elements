@@ -85,17 +85,18 @@ class MimblewimbleTest(BitcoinTestFramework):
         check = self.nodes[2].decoderawtransaction(rawtx1)
         rawtx1 = self.nodes[2].blindrawtransaction(rawtx1)
 
-        decodeblind = self.nodes[0].decoderawtransaction(rawtx1)
-        for thing in decodeblind['vout']:
-            print(thing)
+        # decodeblind = self.nodes[0].decoderawtransaction(rawtx1)
+        # for thing in decodeblind['vout']:
+        #     print(thing)
 
-        print("---------------------------------------------------")
-        return
+        # print("---------------------------------------------------")
+        # return
 
         # build second incomplete tx, node 1 receiving from node 2
         inputs = []
         inputs = [{"txid": txid1, "vout": 0}]
-        outputs = {"fee": Decimal('0.05'), "mw": [Decimal('1.0'), Decimal("3.0")]}
+        # inputs = [{"txid": txid1, "vout": 0}]
+        outputs = {"fee": Decimal('0.05'), "mw": [Decimal('1.0'), Decimal('10.0')]}
         rawtx2 = self.nodes[1].createrawtransaction(inputs, outputs, 0, None)
         thing = self.nodes[1].decoderawtransaction(rawtx2)
         rawtx2 = self.nodes[1].blindrawtransaction(rawtx2)
@@ -107,8 +108,14 @@ class MimblewimbleTest(BitcoinTestFramework):
         # return
 
         merged = self.nodes[1].mergemwtransactions([rawtx1, rawtx2])
-        jsonmerged = self.nodes[1].decoderawtransaction(merged)
         
+        signed1 = self.nodes[1].signrawtransaction(merged)
+        print("one signed")
+
+        signed2 = self.nodes[2].signrawtransaction(signed1['hex'])
+        print("two signed")
+
+        jsonmerged = self.nodes[1].decoderawtransaction(signed2['hex'])
         for thing in jsonmerged['vin']:
             print(thing)
             print("")
@@ -118,7 +125,9 @@ class MimblewimbleTest(BitcoinTestFramework):
             print("")
         # return
 
-        mergedtxid = self.nodes[2].sendrawtransaction(merged)
+
+        mergedtxid = self.nodes[2].sendrawtransaction(signed2['hex'])
+        print(mergedtxid)
 
         self.nodes[2].generate(101)
         self.sync_all()
